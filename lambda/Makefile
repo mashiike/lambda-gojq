@@ -1,15 +1,25 @@
 export AWS_ACCOUNT_ID := $(shell aws sts get-caller-identity --query 'Account' --output text)
 .PHONY: clean deploy logs
 
-bootstrap: ../*.go ../go.*
-	CGO_ENABLED=0 GOARCH=amd64 GOOS=linux go build -o bootstrap ../*.go
-
 clean:
 	rm -f bootstrap
 	rm -f *_dummy.zip
 
 deploy: bootstrap
 	lambroll --log-level debug deploy --tfstate .terraform/terraform.tfstate
+
+.PHONY:
+build:
+	CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o bootstrap ../*.go
+
+export LAMBDA_GOJQ_VERSION=0.1.0
+bootstrap:
+	curl -sOL https://github.com/mashiike/lambda-gojq/releases/download/v$(LAMBDA_GOJQ_VERSION)/lambda-gojq_$(LAMBDA_GOJQ_VERSION)_linux_arm64.tar.gz && \
+	mkdir tmp && \
+	tar -zxvf lambda-gojq_$(LAMBDA_GOJQ_VERSION)_linux_arm64.tar.gz -C tmp && \
+	mv tmp/bootstrap ./bootstrap && \
+	rm -rf tmp && \
+	rm -rf lambda-gojq_$(LAMBDA_GOJQ_VERSION)_linux_arm64.tar.gz
 
 logs:
 	lambroll logs --follow --format=short --tfstate .terraform/terraform.tfstate

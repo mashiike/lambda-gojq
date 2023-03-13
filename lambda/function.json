@@ -1,5 +1,6 @@
 {
   "Description": "Example of github.com/mashiike/lambda-gojq",
+  "Architectures": ["arm64"],
   "Environment": {
       "Variables": {
           "TZ": "Asia/Tokyo"
