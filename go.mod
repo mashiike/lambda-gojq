@@ -3,7 +3,7 @@ module github.com/mashiike/lambda-gojq
 go 1.20
 
 require (
-	github.com/aws/aws-lambda-go v1.38.0
+	github.com/aws/aws-lambda-go v1.39.1
 	github.com/itchyny/gojq v0.12.12
 	github.com/ken39arg/go-flagx v0.0.0-20220608183922-7cf7c6c0093c
 	github.com/stretchr/testify v1.8.2
