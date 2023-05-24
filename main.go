@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
+	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/itchyny/gojq"
 	"github.com/ken39arg/go-flagx"
@@ -20,9 +23,15 @@ var Version string = "current"
 
 func main() {
 	var (
-		logLevel string
+		logLevel        string
+		mode            string
+		defaultQuery    string
+		outputRawString bool
 	)
 	flag.StringVar(&logLevel, "log-level", "info", "output log level")
+	flag.StringVar(&mode, "mode", "default", "handler mode(default|firehose)")
+	flag.StringVar(&defaultQuery, "query", ".", "default query")
+	flag.BoolVar(&outputRawString, "output-raw-string", false, "output raw strings, effective only when mode is firehose")
 	flag.VisitAll(flagx.EnvToFlag)
 	flag.Parse()
 	var minLevel slog.Level
@@ -40,6 +49,21 @@ func main() {
 	}
 	slog.SetDefault(slog.New(slog.HandlerOptions{Level: minLevel, AddSource: addSource}.NewTextHandler(os.Stderr)))
 	slog.Info("start up bootstarp", "version", Version)
+	var handler interface{}
+	switch mode {
+	case "default":
+		handler = newHandler(defaultQuery)
+	case "firehose":
+		var err error
+		handler, err = newFirehoseHandler(defaultQuery, outputRawString)
+		if err != nil {
+			slog.Error("firehose handler init failed", "detail", err)
+			os.Exit(1)
+		}
+	default:
+		slog.Error("mode is unknown", "mode", mode)
+		os.Exit(1)
+	}
 
 	if strings.HasPrefix(os.Getenv("AWS_EXECUTION_ENV"), "AWS_Lambda") || os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" {
 		lambda.StartWithOptions(handler)
@@ -66,15 +90,110 @@ type Payload struct {
 	Data  interface{} `json:"data"`
 }
 
-func handler(ctx context.Context, payload *Payload) (interface{}, error) {
-	slog.Info("handle invocation", "query", payload.Query, "version", Version)
-	query, err := gojq.Parse(payload.Query)
-	if err != nil {
-		slog.ErrorCtx(ctx, "query parse failed", "detail", err)
-		return nil, err
-	}
+func newHandler(defaultQuery string) func(ctx context.Context, payload *Payload) (interface{}, error) {
+	return func(ctx context.Context, payload *Payload) (interface{}, error) {
+		slog.Info("handle invocation", "query", payload.Query, "version", Version)
+		if payload.Query == "" {
+			payload.Query = defaultQuery
+		}
+		query, err := gojq.Parse(payload.Query)
+		if err != nil {
+			slog.ErrorCtx(ctx, "query parse failed", "detail", err)
+			return nil, err
+		}
 
-	iter := query.RunWithContext(ctx, payload.Data)
+		output, err := runQuery(ctx, query, payload.Data)
+		if err != nil {
+			slog.ErrorCtx(ctx, "query run failed", "detail", err)
+			return nil, err
+		}
+		return output, nil
+	}
+}
+
+type firehoseHandlerFunc func(ctx context.Context, payload *events.KinesisFirehoseEvent) (*events.KinesisFirehoseResponse, error)
+
+func newFirehoseHandler(rawQuery string, outputRawString bool) (firehoseHandlerFunc, error) {
+	query, err := gojq.Parse(rawQuery)
+	if err != nil {
+		return nil, fmt.Errorf("query parse failed: %w", err)
+	}
+	h := func(ctx context.Context, payload *events.KinesisFirehoseEvent) (*events.KinesisFirehoseResponse, error) {
+		resp := &events.KinesisFirehoseResponse{
+			Records: make([]events.KinesisFirehoseResponseRecord, len(payload.Records)),
+		}
+		slog.InfoCtx(ctx, "handle invocation", "invocation_id", payload.InvocationID, "delivery_stream_arn", payload.DeliveryStreamArn, "records_count", len(payload.Records), "version", Version)
+		var wg sync.WaitGroup
+		for i, record := range payload.Records {
+			wg.Add(1)
+			go func(i int, record events.KinesisFirehoseEventRecord) {
+				defer wg.Done()
+				slog.DebugCtx(ctx, "record data dump", "record_id", record.RecordID, "data", string(record.Data))
+				slog.InfoCtx(ctx, "handle record", "record_id", record.RecordID, "approximate_arrival_timestamp", record.ApproximateArrivalTimestamp)
+				var data interface{}
+				if err := json.Unmarshal(record.Data, &data); err != nil {
+					slog.ErrorCtx(ctx, "record data unmarshal failed", "record_id", record.RecordID, "detail", err)
+					resp.Records[i] = events.KinesisFirehoseResponseRecord{
+						RecordID: record.RecordID,
+						Result:   events.KinesisFirehoseTransformedStateProcessingFailed,
+					}
+					return
+				}
+				output, err := runQuery(ctx, query, data)
+				if err != nil {
+					slog.ErrorCtx(ctx, "query run failed", "record_id", record.RecordID, "detail", err)
+					resp.Records[i] = events.KinesisFirehoseResponseRecord{
+						RecordID: record.RecordID,
+						Result:   events.KinesisFirehoseTransformedStateProcessingFailed,
+					}
+					return
+				}
+				if output == nil {
+					resp.Records[i] = events.KinesisFirehoseResponseRecord{
+						RecordID: record.RecordID,
+						Result:   events.KinesisFirehoseTransformedStateDropped,
+						Metadata: events.KinesisFirehoseResponseRecordMetadata{
+							PartitionKeys: map[string]string{},
+						},
+					}
+					return
+				}
+				var d []byte
+				if outputRawString {
+					d = []byte(fmt.Sprintf("%v", output))
+				} else {
+					b, err := json.Marshal(output)
+					if err != nil {
+						slog.ErrorCtx(ctx, "output marshal failed", "record_id", record.RecordID, "detail", err)
+						resp.Records[i] = events.KinesisFirehoseResponseRecord{
+							RecordID: record.RecordID,
+							Result:   events.KinesisFirehoseTransformedStateProcessingFailed,
+							Metadata: events.KinesisFirehoseResponseRecordMetadata{
+								PartitionKeys: map[string]string{},
+							},
+						}
+						return
+					}
+					d = b
+				}
+				resp.Records[i] = events.KinesisFirehoseResponseRecord{
+					RecordID: record.RecordID,
+					Result:   events.KinesisFirehoseTransformedStateOk,
+					Data:     d,
+					Metadata: events.KinesisFirehoseResponseRecordMetadata{
+						PartitionKeys: map[string]string{},
+					},
+				}
+			}(i, record)
+		}
+		wg.Wait()
+		return resp, nil
+	}
+	return h, nil
+}
+
+func runQuery(ctx context.Context, query *gojq.Query, data interface{}) (interface{}, error) {
+	iter := query.RunWithContext(ctx, data)
 	output := make([]interface{}, 0)
 	for {
 		v, ok := iter.Next()
@@ -82,8 +201,7 @@ func handler(ctx context.Context, payload *Payload) (interface{}, error) {
 			break
 		}
 		if err, ok := v.(error); ok {
-			log.Printf("[error] query iter err: %s", err.Error())
-			return nil, err
+			return nil, fmt.Errorf("query iter err: %w", err)
 		}
 		output = append(output, v)
 	}
