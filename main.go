@@ -23,15 +23,13 @@ var Version string = "current"
 
 func main() {
 	var (
-		logLevel        string
-		mode            string
-		defaultQuery    string
-		outputRawString bool
+		logLevel     string
+		mode         string
+		defaultQuery string
 	)
 	flag.StringVar(&logLevel, "log-level", "info", "output log level")
 	flag.StringVar(&mode, "mode", "default", "handler mode(default|firehose)")
 	flag.StringVar(&defaultQuery, "query", ".", "default query")
-	flag.BoolVar(&outputRawString, "output-raw-string", false, "output raw strings, effective only when mode is firehose")
 	flag.VisitAll(flagx.EnvToFlag)
 	flag.Parse()
 	var minLevel slog.Level
@@ -55,7 +53,7 @@ func main() {
 		handler = newHandler(defaultQuery)
 	case "firehose":
 		var err error
-		handler, err = newFirehoseHandler(defaultQuery, outputRawString)
+		handler, err = newFirehoseHandler(defaultQuery)
 		if err != nil {
 			slog.Error("firehose handler init failed", "detail", err)
 			os.Exit(1)
@@ -113,7 +111,7 @@ func newHandler(defaultQuery string) func(ctx context.Context, payload *Payload)
 
 type firehoseHandlerFunc func(ctx context.Context, payload *events.KinesisFirehoseEvent) (*events.KinesisFirehoseResponse, error)
 
-func newFirehoseHandler(rawQuery string, outputRawString bool) (firehoseHandlerFunc, error) {
+func newFirehoseHandler(rawQuery string) (firehoseHandlerFunc, error) {
 	query, err := gojq.Parse(rawQuery)
 	if err != nil {
 		return nil, fmt.Errorf("query parse failed: %w", err)
@@ -158,28 +156,23 @@ func newFirehoseHandler(rawQuery string, outputRawString bool) (firehoseHandlerF
 					}
 					return
 				}
-				var d []byte
-				if outputRawString {
-					d = []byte(fmt.Sprintf("%v", output))
-				} else {
-					b, err := json.Marshal(output)
-					if err != nil {
-						slog.ErrorCtx(ctx, "output marshal failed", "record_id", record.RecordID, "detail", err)
-						resp.Records[i] = events.KinesisFirehoseResponseRecord{
-							RecordID: record.RecordID,
-							Result:   events.KinesisFirehoseTransformedStateProcessingFailed,
-							Metadata: events.KinesisFirehoseResponseRecordMetadata{
-								PartitionKeys: map[string]string{},
-							},
-						}
-						return
+
+				b, err := json.Marshal(output)
+				if err != nil {
+					slog.ErrorCtx(ctx, "output marshal failed", "record_id", record.RecordID, "detail", err)
+					resp.Records[i] = events.KinesisFirehoseResponseRecord{
+						RecordID: record.RecordID,
+						Result:   events.KinesisFirehoseTransformedStateProcessingFailed,
+						Metadata: events.KinesisFirehoseResponseRecordMetadata{
+							PartitionKeys: map[string]string{},
+						},
 					}
-					d = b
+					return
 				}
 				resp.Records[i] = events.KinesisFirehoseResponseRecord{
 					RecordID: record.RecordID,
 					Result:   events.KinesisFirehoseTransformedStateOk,
-					Data:     d,
+					Data:     b,
 					Metadata: events.KinesisFirehoseResponseRecordMetadata{
 						PartitionKeys: map[string]string{},
 					},

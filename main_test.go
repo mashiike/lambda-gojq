@@ -90,7 +90,7 @@ func TestFirehoseHandler__ForCloudwatchLogsSubscriptionFilter(t *testing.T) {
 			}
 		]
 	}`)
-	handler, err := newFirehoseHandler(".message", true)
+	handler, err := newFirehoseHandler(".message | fromjson")
 	require.NoError(t, err)
 	h := lambda.NewHandler(handler)
 	actual, err := h.Invoke(context.Background(), paylaod)
