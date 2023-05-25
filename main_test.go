@@ -49,8 +49,8 @@ func TestHandler(t *testing.T) {
 }
 
 func TestFirehoseHandler__ForCloudwatchLogsSubscriptionFilter(t *testing.T) {
-	data1 := base64.StdEncoding.EncodeToString([]byte(`{"id":"id1","timestamp":1495072949453,"message":"{\"logGroup\":\"logGroup1\",\"logStream\":\"logStream1\",\"subscriptionFilters\":[\"subscriptionFilter1\",\"subscriptionFilter2\"]}"}`))
-	data2 := base64.StdEncoding.EncodeToString([]byte(`{"id":"id2","timestamp":1495072949453,"message":"{\"logGroup\":\"logGroup2\",\"logStream\":\"logStream2\",\"subscriptionFilters\":[\"subscriptionFilter1\",\"subscriptionFilter2\"]}"}`))
+	data1 := base64.StdEncoding.EncodeToString([]byte(`{"id":"id1","timestamp":1495072949453,"message":"{\"logGroup\":\"logGroup1\",\"logStream\":\"logStream1\",\"subscriptionFilters\":[\"subscriptionFilter1\",\"subscriptionFilter2\"]}"}` + "\n"))
+	data2 := base64.StdEncoding.EncodeToString([]byte(`{"id":"id2","timestamp":1495072949453,"message":"{\"logGroup\":\"logGroup2\",\"logStream\":\"logStream2\",\"subscriptionFilters\":[\"subscriptionFilter1\",\"subscriptionFilter2\"]}"}` + "\n"))
 	paylaod := json.RawMessage(`{
 		"invocationId": "invocationIdExample",
 		"deliveryStreamArn": "arn:aws:kinesis:EXAMPLE",
@@ -68,8 +68,8 @@ func TestFirehoseHandler__ForCloudwatchLogsSubscriptionFilter(t *testing.T) {
 			}
 		]
 	}`)
-	result1 := base64.StdEncoding.EncodeToString([]byte(`{"logGroup":"logGroup1","logStream":"logStream1","subscriptionFilters":["subscriptionFilter1","subscriptionFilter2"]}`))
-	result2 := base64.StdEncoding.EncodeToString([]byte(`{"logGroup":"logGroup2","logStream":"logStream2","subscriptionFilters":["subscriptionFilter1","subscriptionFilter2"]}`))
+	result1 := base64.StdEncoding.EncodeToString([]byte(`{"logGroup":"logGroup1","logStream":"logStream1","subscriptionFilters":["subscriptionFilter1","subscriptionFilter2"]}` + "\n"))
+	result2 := base64.StdEncoding.EncodeToString([]byte(`{"logGroup":"logGroup2","logStream":"logStream2","subscriptionFilters":["subscriptionFilter1","subscriptionFilter2"]}` + "\n"))
 	expected := json.RawMessage(`{
 		"records": [
 			{

@@ -169,6 +169,7 @@ func newFirehoseHandler(rawQuery string) (firehoseHandlerFunc, error) {
 					}
 					return
 				}
+				b = append(b, '\n')
 				resp.Records[i] = events.KinesisFirehoseResponseRecord{
 					RecordID: record.RecordID,
 					Result:   events.KinesisFirehoseTransformedStateOk,
