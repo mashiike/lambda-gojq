@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -49,8 +50,32 @@ func TestHandler(t *testing.T) {
 }
 
 func TestFirehoseHandler__ForCloudwatchLogsSubscriptionFilter(t *testing.T) {
-	data1 := base64.StdEncoding.EncodeToString([]byte(`{"id":"id1","timestamp":1495072949453,"message":"{\"logGroup\":\"logGroup1\",\"logStream\":\"logStream1\",\"subscriptionFilters\":[\"subscriptionFilter1\",\"subscriptionFilter2\"]}"}` + "\n"))
-	data2 := base64.StdEncoding.EncodeToString([]byte(`{"id":"id2","timestamp":1495072949453,"message":"{\"logGroup\":\"logGroup2\",\"logStream\":\"logStream2\",\"subscriptionFilters\":[\"subscriptionFilter1\",\"subscriptionFilter2\"]}"}` + "\n"))
+	data1 := base64.StdEncoding.EncodeToString([]byte(`{
+		"messageType":"DATA_MESSAGE",
+		"owner":"123456789012",
+		"logGroup":"logGroup1",
+		"logStream":"logStream1",
+		"subscriptionFilters":[
+			"filter1"
+		],
+		"logEvents":[
+			{"id":"id1","timestamp":1495072949453,"message":"{\"hoge\":\"hoge1\",\"fuga\":\"fuga1\"}"},
+			{"id":"id2","timestamp":1495072949477,"message":"{\"hoge\":\"hoge2\",\"fuga\":\"fuga2\"}"}
+		]
+	}` + "\n"))
+	data2 := base64.StdEncoding.EncodeToString([]byte(`{
+		"messageType":"DATA_MESSAGE",
+		"owner":"123456789012",
+		"logGroup":"logGroup2",
+		"logStream":"logStream2",
+		"subscriptionFilters":[
+			"filter2"
+		],
+		"logEvents":[
+			{"id":"id3","timestamp":1495072947777,"message":"{\"hoge\":\"hoge3\",\"fuga\":\"fuga3\"}"},
+			{"id":"id4","timestamp":1495072949888,"message":"{\"hoge\":\"hoge4\",\"fuga\":\"fuga4\"}"}
+		]
+	}` + "\n"))
 	paylaod := json.RawMessage(`{
 		"invocationId": "invocationIdExample",
 		"deliveryStreamArn": "arn:aws:kinesis:EXAMPLE",
@@ -68,29 +93,7 @@ func TestFirehoseHandler__ForCloudwatchLogsSubscriptionFilter(t *testing.T) {
 			}
 		]
 	}`)
-	result1 := base64.StdEncoding.EncodeToString([]byte(`{"logGroup":"logGroup1","logStream":"logStream1","subscriptionFilters":["subscriptionFilter1","subscriptionFilter2"]}` + "\n"))
-	result2 := base64.StdEncoding.EncodeToString([]byte(`{"logGroup":"logGroup2","logStream":"logStream2","subscriptionFilters":["subscriptionFilter1","subscriptionFilter2"]}` + "\n"))
-	expected := json.RawMessage(`{
-		"records": [
-			{
-				"recordId": "49546986683135544286507457936321625675700192471156785154",
-				"result": "Ok",
-				"data": "` + result1 + `",
-				"metadata": {
-					"partitionKeys": {}
-				}
-			},
-			{
-				"recordId": "49546986683135544286507457936321625675700192471156785155",
-				"result": "Ok",
-				"data": "` + result2 + `",
-				"metadata": {
-					"partitionKeys": {}
-				}
-			}
-		]
-	}`)
-	handler, err := newFirehoseHandler(".message | fromjson")
+	handler, err := newFirehoseHandler(".logEvents[] | .message | fromjson")
 	require.NoError(t, err)
 	h := lambda.NewHandler(handler)
 	actual, err := h.Invoke(context.Background(), paylaod)
@@ -98,11 +101,25 @@ func TestFirehoseHandler__ForCloudwatchLogsSubscriptionFilter(t *testing.T) {
 	var resp events.KinesisFirehoseResponse
 	err = json.Unmarshal(actual, &resp)
 	require.NoError(t, err)
-	for _, r := range resp.Records {
+	expected := [][]byte{
+		[]byte(`{"hoge":"hoge1","fuga":"fuga1"}` + "\n" + `{"hoge":"hoge2","fuga":"fuga2"}` + "\n"),
+		[]byte(`{"hoge":"hoge3","fuga":"fuga3"}` + "\n" + `{"hoge":"hoge4","fuga":"fuga4"}` + "\n"),
+	}
+	for i, r := range resp.Records {
 		if r.Data == nil {
 			continue
 		}
 		t.Log(string(r.Data))
+		a := strings.Split(string(r.Data), "\n")
+		b := strings.Split(string(expected[i]), "\n")
+		if len(a) != len(b) {
+			t.Errorf("len(a) != len(b) (%d != %d)", len(a), len(b))
+		}
+		for j := range a {
+			if a[j] == "" {
+				continue
+			}
+			require.JSONEq(t, b[j], a[j])
+		}
 	}
-	require.JSONEq(t, string(expected), string(actual))
 }
