@@ -50,6 +50,19 @@ output
 {"env":"pord","hoge":"2023-03-13T%H:32:52Z","port":80}    
 ```
 
+## Usage with Amazon Kinesis Data Firehose for Data tranform
+
+example is [lambda/firehose directory](lambda/firehose)
+
+You can run it as a Lambda for data conversion of Kinesis Data Firehose.
+Set the following two environment variables for the Lambda function.
+```shell
+MODE=firehose
+QUERY="<gojq expression to apply to each record>"
+```
+And associate the function with the data conversion Lambda of the delivarly stream of Firehose.
+
+
 ## LICENSE
 
 MIT 
