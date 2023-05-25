@@ -1,7 +1,0 @@
-{
-  "query": ". | .hoge=(now | strftime(\"%Y-%m-%dT%%H:%M:%SZ\"))",
-  "data": {
-    "env": "pord",
-    "port": 80
-  }
-}
