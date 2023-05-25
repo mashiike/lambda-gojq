@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"flag"
@@ -132,10 +134,29 @@ func newFirehoseHandler(rawQuery string) (firehoseHandlerFunc, error) {
 			wg.Add(1)
 			go func(i int, record events.KinesisFirehoseEventRecord) {
 				defer wg.Done()
-				slog.DebugCtx(ctx, "record data dump", "record_id", record.RecordID, "data", string(record.Data))
 				slog.InfoCtx(ctx, "handle record", "record_id", record.RecordID, "approximate_arrival_timestamp", record.ApproximateArrivalTimestamp)
+				isGzip := isGzipCompressed(record.Data)
+				rawData := record.Data
+				if isGzip {
+					var err error
+					rawData, err = gzipDecode(record.Data)
+					if err != nil {
+						slog.ErrorCtx(ctx, "record data gzip decode failed", "record_id", record.RecordID, "detail", err)
+						resp.Records[i] = events.KinesisFirehoseResponseRecord{
+							RecordID: record.RecordID,
+							Result:   events.KinesisFirehoseTransformedStateProcessingFailed,
+						}
+						return
+					}
+				}
+				rawStr := string(rawData)
+				n := len(rawStr)
+				if n > 64 {
+					n = 64
+				}
+				slog.DebugCtx(ctx, "record data dump (max=64chars)", "record_id", record.RecordID, "data", rawStr[:n], "is_gzip", isGzip)
 				var data interface{}
-				if err := json.Unmarshal(record.Data, &data); err != nil {
+				if err := json.Unmarshal(rawData, &data); err != nil {
 					slog.ErrorCtx(ctx, "record data unmarshal failed", "record_id", record.RecordID, "detail", err)
 					resp.Records[i] = events.KinesisFirehoseResponseRecord{
 						RecordID: record.RecordID,
@@ -209,4 +230,28 @@ func runQuery(ctx context.Context, query *gojq.Query, data interface{}) ([]inter
 		output = append(output, v)
 	}
 	return output, nil
+}
+
+func isGzipCompressed(data []byte) bool {
+	// 先頭の2バイトが gzip マジックナンバーと一致するか確認する
+	if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
+		return false
+	}
+
+	return true
+}
+
+func gzipDecode(data []byte) ([]byte, error) {
+	r, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("gzip new reader failed: %w", err)
+	}
+	defer r.Close()
+
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		return nil, fmt.Errorf("gzip copy failed: %w", err)
+	}
+
+	return buf.Bytes(), nil
 }

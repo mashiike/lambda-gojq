@@ -44,6 +44,9 @@ terraform/plan:
 terraform/apply:
 	terraform apply
 
-.PHONY: put-record
-put-record:
-	PAGER="" aws firehose put-record-batch --delivery-stream-name $(shell tfstate-lookup --state .terraform/terraform.tfstate aws_kinesis_firehose_delivery_stream.main.name) --records file://records.json
+.PHONY: put-log-events
+put-log-events:
+	PAGER="" aws logs put-log-events \
+		--log-group-name $(shell tfstate-lookup --state .terraform/terraform.tfstate aws_cloudwatch_log_stream.test.log_group_name) \
+		--log-stream-name $(shell tfstate-lookup --state .terraform/terraform.tfstate aws_cloudwatch_log_stream.test.name)  \
+		--log-events '{"timestamp":$(shell perl -MTime::HiRes -e 'printf("%.0f\n",Time::HiRes::time()*1000)' ) , "message":"{\"hoge\": \"fuga\"}"}'

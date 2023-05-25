@@ -82,6 +82,71 @@ resource "aws_cloudwatch_log_stream" "default" {
   log_group_name = aws_cloudwatch_log_group.firehose.name
 }
 
+
+resource "aws_iam_role" "subscription_filter" {
+  name = "for_subscription_filter"
+  assume_role_policy = jsonencode({
+    Version : "2012-10-17"
+    Statement : [
+      {
+        Effect : "Allow"
+        Principal : {
+          Service : "logs.ap-northeast-1.amazonaws.com"
+        }
+        Action : "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "subscription_filter" {
+  name = "logs_to_firehose_role_policy"
+  role = aws_iam_role.subscription_filter.id
+
+  policy = jsonencode(
+    {
+      Statement = [
+        {
+          "Sid" : "VisualEditor0",
+          "Action" : [
+            "firehose:PutRecord",
+          ],
+          "Effect" : "Allow",
+          "Resource" : [
+            "arn:aws:firehose:ap-northeast-1:${data.aws_caller_identity.current.id}:deliverystream/*",
+          ]
+        },
+        {
+          "Effect" : "Allow",
+          "Action" : "iam:PassRole",
+          "Resource" : "${aws_iam_role.firehose.arn}"
+        }
+      ]
+    }
+  )
+}
+
+resource "aws_cloudwatch_log_group" "test" {
+  name = "lambda-gojq-firehose-test"
+
+  retention_in_days = 180
+}
+
+resource "aws_cloudwatch_log_stream" "test" {
+  name           = "test"
+  log_group_name = aws_cloudwatch_log_group.test.name
+}
+
+
+resource "aws_cloudwatch_log_subscription_filter" "test" {
+  name            = "all"
+  log_group_name  = aws_cloudwatch_log_group.test.name
+  filter_pattern  = ""
+  destination_arn = aws_kinesis_firehose_delivery_stream.main.arn
+  role_arn        = aws_iam_role.subscription_filter.arn
+  distribution    = "Random"
+}
+
 resource "aws_iam_role" "firehose" {
   name = "gojq_firehose"
 
