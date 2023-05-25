@@ -1,5 +1,8 @@
 # Changelog
 
+## [v0.2.2](https://github.com/mashiike/lambda-gojq/compare/v0.2.1...v0.2.2) - 2023-05-25
+- if gzip compressed, json parse after decompose by @mashiike in https://github.com/mashiike/lambda-gojq/pull/13
+
 ## [v0.2.1](https://github.com/mashiike/lambda-gojq/compare/v0.2.0...v0.2.1) - 2023-05-25
 - fix subscription filter & multiple result separate lines by @mashiike in https://github.com/mashiike/lambda-gojq/pull/11
 
