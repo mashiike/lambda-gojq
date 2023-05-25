@@ -44,7 +44,6 @@ terraform/plan:
 terraform/apply:
 	terraform apply
 
-.PHONY: invoke
-invoke:
-	PAGER="" aws lambda invoke --function-name $(shell tfstate-lookup --state .terraform/terraform.tfstate aws_lambda_function.gojq.arn) --qualifier current --payload file://payload.json  --cli-binary-format raw-in-base64-out output.json
-	cat output.json
+.PHONY: put-record
+put-record:
+	PAGER="" aws firehose put-record-batch --delivery-stream-name $(shell tfstate-lookup --state .terraform/terraform.tfstate aws_kinesis_firehose_delivery_stream.main.name) --records file://records.json
