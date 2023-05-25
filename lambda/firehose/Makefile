@@ -10,9 +10,9 @@ deploy: bootstrap
 
 .PHONY:
 build:
-	CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o bootstrap ../*.go
+	CGO_ENABLED=0 GOARCH=arm64 GOOS=linux go build -o bootstrap ../../*.go
 
-export LAMBDA_GOJQ_VERSION=0.1.0
+export LAMBDA_GOJQ_VERSION=0.2.0
 bootstrap:
 	curl -sOL https://github.com/mashiike/lambda-gojq/releases/download/v$(LAMBDA_GOJQ_VERSION)/lambda-gojq_$(LAMBDA_GOJQ_VERSION)_linux_arm64.tar.gz && \
 	mkdir tmp && \
@@ -44,7 +44,6 @@ terraform/plan:
 terraform/apply:
 	terraform apply
 
-.PHONY: invoke
-invoke:
-	PAGER="" aws lambda invoke --function-name $(shell tfstate-lookup --state .terraform/terraform.tfstate aws_lambda_function.gojq.arn) --qualifier current --payload file://payload.json  --cli-binary-format raw-in-base64-out output.json
-	cat output.json
+.PHONY: put-record
+put-record:
+	PAGER="" aws firehose put-record-batch --delivery-stream-name $(shell tfstate-lookup --state .terraform/terraform.tfstate aws_kinesis_firehose_delivery_stream.main.name) --records file://records.json

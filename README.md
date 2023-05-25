@@ -19,10 +19,10 @@ A related document is [https://docs.aws.amazon.com/lambda/latest/dg/runtimes-cus
 
 for example.
 
-deploy lambda functions, in [lambda directory](lambda/)  
+deploy lambda functions, in [lambda directory(default mode)](lambda/default)  
 The example of lambda directory uses [lambroll](https://github.com/fujiwara/lambroll) for deployment.
 
-For more information on the infrastructure around lambda functions, please refer to [example.tf](lambda/example.tf).
+For more information on the infrastructure around lambda functions, please refer to [example.tf](lambda/default/example.tf).
 
 ```shell
 $ cd lambda/
@@ -32,7 +32,7 @@ $ make terraform/apply
 $ make deploy
 ```
 
-## lambda Payload
+## lambda Payload (MODE=default)
 
 for example
 ```json
@@ -49,4 +49,20 @@ output
 ```json
 {"env":"pord","hoge":"2023-03-13T%H:32:52Z","port":80}    
 ```
+
+## Usage with Amazon Kinesis Data Firehose for Data tranform
+
+example is [lambda/firehose directory](lambda/firehose)
+
+You can run it as a Lambda for data conversion of Kinesis Data Firehose.
+Set the following two environment variables for the Lambda function.
+```shell
+MODE=firehose
+QUERY="<gojq expression to apply to each record>"
+```
+And associate the function with the data conversion Lambda of the delivarly stream of Firehose.
+
+
 ## LICENSE
+
+MIT 
