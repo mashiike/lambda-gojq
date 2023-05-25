@@ -105,6 +105,12 @@ func newHandler(defaultQuery string) func(ctx context.Context, payload *Payload)
 			slog.ErrorCtx(ctx, "query run failed", "detail", err)
 			return nil, err
 		}
+		if len(output) == 0 {
+			return nil, nil
+		}
+		if len(output) == 1 {
+			return output[0], nil
+		}
 		return output, nil
 	}
 }
@@ -156,24 +162,27 @@ func newFirehoseHandler(rawQuery string) (firehoseHandlerFunc, error) {
 					}
 					return
 				}
-
-				b, err := json.Marshal(output)
-				if err != nil {
-					slog.ErrorCtx(ctx, "output marshal failed", "record_id", record.RecordID, "detail", err)
-					resp.Records[i] = events.KinesisFirehoseResponseRecord{
-						RecordID: record.RecordID,
-						Result:   events.KinesisFirehoseTransformedStateProcessingFailed,
-						Metadata: events.KinesisFirehoseResponseRecordMetadata{
-							PartitionKeys: map[string]string{},
-						},
+				var resultData []byte
+				for _, v := range output {
+					b, err := json.Marshal(v)
+					if err != nil {
+						slog.ErrorCtx(ctx, "output marshal failed", "record_id", record.RecordID, "detail", err)
+						resp.Records[i] = events.KinesisFirehoseResponseRecord{
+							RecordID: record.RecordID,
+							Result:   events.KinesisFirehoseTransformedStateProcessingFailed,
+							Metadata: events.KinesisFirehoseResponseRecordMetadata{
+								PartitionKeys: map[string]string{},
+							},
+						}
+						return
 					}
-					return
+					resultData = append(resultData, b...)
+					resultData = append(resultData, '\n')
 				}
-				b = append(b, '\n')
 				resp.Records[i] = events.KinesisFirehoseResponseRecord{
 					RecordID: record.RecordID,
 					Result:   events.KinesisFirehoseTransformedStateOk,
-					Data:     b,
+					Data:     resultData,
 					Metadata: events.KinesisFirehoseResponseRecordMetadata{
 						PartitionKeys: map[string]string{},
 					},
@@ -186,7 +195,7 @@ func newFirehoseHandler(rawQuery string) (firehoseHandlerFunc, error) {
 	return h, nil
 }
 
-func runQuery(ctx context.Context, query *gojq.Query, data interface{}) (interface{}, error) {
+func runQuery(ctx context.Context, query *gojq.Query, data interface{}) ([]interface{}, error) {
 	iter := query.RunWithContext(ctx, data)
 	output := make([]interface{}, 0)
 	for {
@@ -198,12 +207,6 @@ func runQuery(ctx context.Context, query *gojq.Query, data interface{}) (interfa
 			return nil, fmt.Errorf("query iter err: %w", err)
 		}
 		output = append(output, v)
-	}
-	if len(output) == 0 {
-		return nil, nil
-	}
-	if len(output) == 1 {
-		return output[0], nil
 	}
 	return output, nil
 }
